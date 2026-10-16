@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}</style>
+<title>Lavender Bloom</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed WebGL stage, quiet type pinned to the top-left and bottom edges */
+  :root {
+    --night: #150F24;      /* twilight ground */
+    --dusk: #2A1E47;       /* lavender glow behind the bloom */
+    --lavender: #B9A2F0;
+    --mist: #E6DAFB;       /* lavender-white text */
+    --white: #FFFFFF;
+    --pollen: #FFD84D;     /* yellow accent */
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 50% 55%, var(--dusk) 0%, var(--night) 62%);
+    background-color: var(--night);
+    color: var(--mist);
+    font-family: var(--display);
+    overflow: hidden;
+  }
+  #stage { position: fixed; inset: 0; display: block; width: 100%; height: 100%; cursor: pointer; touch-action: manipulation; }
+  .ui {
+    position: fixed; inset: 0; pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: calc(20px + env(safe-area-inset-top, 0px)) calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  header h1 {
+    margin: 0; font-weight: 700; font-size: clamp(1.75rem, 4.5vw, 3rem);
+    letter-spacing: -0.02em; line-height: 1; color: var(--white); text-wrap: balance;
+  }
+  header h1 span { color: var(--pollen); }
+  header p {
+    margin: 10px 0 0; font-family: var(--mono); font-size: 0.75rem;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--lavender);
+  }
+  footer { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .shape { min-width: 0; }
+  .shape .name { font-size: clamp(1.25rem, 3vw, 1.75rem); font-weight: 700; color: var(--white); transition: opacity .4s; }
+  .shape .formula { margin-top: 4px; font-family: var(--mono); font-size: 0.8rem; color: var(--pollen); transition: opacity .4s; }
+  .shape.fading .name, .shape.fading .formula { opacity: 0; }
+  .controls { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+  .dots { display: flex; gap: 10px; pointer-events: auto; }
+  .dots button {
+    width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--lavender);
+    background: transparent; color: var(--mist); font-family: var(--mono); font-size: 0.7rem;
+    cursor: pointer; transition: background .25s, color .25s, border-color .25s;
+  }
+  .dots button:hover { border-color: var(--pollen); }
+  .dots button[aria-pressed="true"] { background: var(--pollen); border-color: var(--pollen); color: var(--night); }
+  .dots button:focus-visible { outline: 2px solid var(--white); outline-offset: 3px; }
+  .hint { font-family: var(--mono); font-size: 0.7rem; color: var(--lavender); opacity: .8; }
+  @media (max-width: 520px) {
+    footer { flex-direction: column; align-items: flex-start; }
+    .controls { align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stage" aria-label="Animated 3D particle bloom. Click to change shape."></canvas>
+
+<div class="ui">
+  <header>
+    <h1>Lavender <span>Bloom</span></h1>
+    <p id="count">particles in motion · three.js</p>
+  </header>
+  <footer>
+    <div class="shape" id="shape">
+      <div class="name" id="shapeName">Fibonacci Sphere</div>
+      <div class="formula" id="shapeFormula">θᵢ = i · 137.5°</div>
+    </div>
+    <div class="controls">
+      <div class="dots" id="dots" role="group" aria-label="Choose shape"></div>
+      <div class="hint">Click anywhere or press → to bloom into the next shape</div>
+    </div>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const N = window.innerWidth < 600 ? 14000 : 24000;
+  document.getElementById("count").textContent = N.toLocaleString() + " particles in motion · three.js";
+
+  // ---------- shapes ----------
+  const rand = () => Math.random();
+  const gauss = () => (rand() + rand() + rand() - 1.5) / 1.5;
+
+  function sphere() {
+    const a = new Float32Array(N * 3), golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < N; i++) {
+      const y = 1 - 2 * (i + 0.5) / N, r = Math.sqrt(1 - y * y), th = i * golden;
+      const R = 1.7 + gauss() * 0.05;
+      a[i*3] = Math.cos(th) * r * R; a[i*3+1] = y * R; a[i*3+2] = Math.sin(th) * r * R;
+    }
+    return a;
+  }
+  function flower() {
+    const a = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const layer = i % 3;                       // three petal layers, rotated
+      const th = rand() * Math.PI * 2;
+      const petal = Math.pow(Math.abs(Math.cos(2.5 * (th + layer * 0.21))), 0.7);
+      const size = 2.3 - layer * 0.45;
+      const rr = size * petal * Math.sqrt(rand());
+      a[i*3]   = Math.cos(th) * rr;
+      a[i*3+2] = Math.sin(th) * rr;
+      a[i*3+1] = 0.12 * rr * rr - 0.35 + layer * 0.14 + gauss() * 0.03;
+    }
+    return a;
+  }
+  function knot() {
+    const a = new Float32Array(N * 3), p = 2, q = 3;
+    for (let i = 0; i < N; i++) {
+      const t = rand() * Math.PI * 2, r = Math.cos(q * t) + 2;
+      const j = 0.2 * Math.cbrt(rand());
+      const u = rand() * Math.PI * 2, v = Math.acos(2 * rand() - 1);
+      a[i*3]   = 0.62 * r * Math.cos(p * t) + j * Math.sin(v) * Math.cos(u);
+      a[i*3+1] = 0.62 * r * Math.sin(p * t) + j * Math.sin(v) * Math.sin(u);
+      a[i*3+2] = -0.62 * Math.sin(q * t) + j * Math.cos(v);
+    }
+    return a;
+  }
+  function galaxy() {
+    const a = new Float32Array(N * 3), arms = 3;
+    for (let i = 0; i < N; i++) {
+      const r = Math.pow(rand(), 1.6) * 2.8;
+      const branch = (i % arms) / arms * Math.PI * 2, spin = r * 1.5;
+      const spread = Math.pow(rand(), 3) * (rand() < .5 ? 1 : -1) * 0.5 * (1 + r * 0.3);
+      a[i*3]   = Math.cos(branch + spin) * r + spread;
+      a[i*3+1] = gauss() * 0.12 * (1.4 - r / 2.8);
+      a[i*3+2] = Math.sin(branch + spin) * r + Math.pow(rand(), 3) * (rand() < .5 ? 1 : -1) * 0.5;
+    }
+    return a;
+  }
+
+  const SHAPES = [
+    { name: "Fibonacci Sphere", formula: "θᵢ = i · 137.5°  (golden angle)", pos: sphere() },
+    { name: "Lavender Rose",    formula: "r = |cos(5θ/2)|  ·  three petal layers", pos: flower() },
+    { name: "Torus Knot",       formula: "(p, q) = (2, 3)  ·  trefoil", pos: knot() },
+    { name: "Spiral Galaxy",    formula: "φ = branch + 1.5r  ·  3 arms", pos: galaxy() },
+  ];
+
+  // ---------- renderer ----------
+  const canvas = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.set(0, 2.6, 7);
+  camera.lookAt(0, 0, 0);
+
+  // ---------- bloom particles ----------
+  const palette = [
+    [new THREE.Color("#B9A2F0"), 0.38],
+    [new THREE.Color("#8F6FE0"), 0.17],
+    [new THREE.Color("#E6DAFB"), 0.15],
+    [new THREE.Color("#FFFFFF"), 0.12],
+    [new THREE.Color("#FFD84D"), 0.18],
+  ];
+  const colors = new Float32Array(N * 3), seeds = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    let x = rand(), c = palette[0][0];
+    for (const [col, w] of palette) { if (x < w) { c = col; break; } x -= w; }
+    colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+    seeds[i] = rand();
+  }
+  const geo = new THREE.BufferGeometry();
+  const fromAttr = new THREE.BufferAttribute(SHAPES[0].pos.slice(), 3);
+  const toAttr = new THREE.BufferAttribute(SHAPES[0].pos.slice(), 3);
+  geo.setAttribute("position", fromAttr);   // used for bounding sphere only
+  geo.setAttribute("aFrom", fromAttr);
+  geo.setAttribute("aTo", toAttr);
+  geo.setAttribute("aColor", new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
+
+  const uniforms = {
+    uMix: { value: 1 }, uTime: { value: 0 },
+    uSize: { value: 30 }, uPixelRatio: { value: renderer.getPixelRatio() },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute vec3 aFrom; attribute vec3 aTo; attribute vec3 aColor; attribute float aSeed;
+      uniform float uMix, uTime, uSize, uPixelRatio;
+      varying vec3 vColor; varying float vAlpha;
+      void main() {
+        float m = clamp((uMix - aSeed * 0.35) / 0.65, 0.0, 1.0);
+        m = m * m * (3.0 - 2.0 * m);
+        vec3 p = mix(aFrom, aTo, m);
+        float s = sin(m * 3.14159);
+        float ang = s * 2.2 * (aSeed - 0.5);
+        p.xz = mat2(cos(ang), sin(ang), -sin(ang), cos(ang)) * p.xz;
+        p += s * 0.55 * aSeed * normalize(p + vec3(0.0001));
+        p.y += sin(uTime * 0.8 + aSeed * 6.2831) * 0.035;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mv;
+        float tw = 0.65 + 0.35 * sin(uTime * 2.2 + aSeed * 40.0);
+        gl_PointSize = uSize * uPixelRatio * (0.5 + aSeed) * tw / -mv.z;
+        float core = smoothstep(0.9, 0.0, length(p));
+        vColor = mix(aColor, vec3(1.0, 0.86, 0.32), core * 0.65);
+        vAlpha = tw;
+      }`,
+    fragmentShader: `
+      varying vec3 vColor; varying float vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        float a = pow(smoothstep(0.5, 0.0, d), 1.6);
+        gl_FragColor = vec4(vColor, a * vAlpha * 0.55);
+      }`,
+  });
+  const group = new THREE.Group();
+  group.add(new THREE.Points(geo, mat));
+  scene.add(group);
+
+  // ---------- distant dust ----------
+  const DUST = 1400, dust = new Float32Array(DUST * 3);
+  for (let i = 0; i < DUST; i++) {
+    const r = 12 + rand() * 18, u = rand() * Math.PI * 2, v = Math.acos(2 * rand() - 1);
+    dust[i*3] = r * Math.sin(v) * Math.cos(u); dust[i*3+1] = r * Math.cos(v); dust[i*3+2] = r * Math.sin(v) * Math.sin(u);
+  }
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute("position", new THREE.BufferAttribute(dust, 3));
+  const dustPts = new THREE.Points(dustGeo, new THREE.PointsMaterial({
+    color: 0xE6DAFB, size: 0.06, transparent: true, opacity: 0.55, depthWrite: false,
+  }));
+  scene.add(dustPts);
+
+  // ---------- morph control ----------
+  let current = 0, target = 0, morphStart = -1;
+  const MORPH = 2.2;
+  const dotsEl = document.getElementById("dots");
+  const shapeEl = document.getElementById("shape");
+  const buttons = SHAPES.map((s, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.id = "shape-" + i; b.textContent = String(i + 1);
+    b.setAttribute("aria-label", s.name);
+    b.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+    b.addEventListener("click", (e) => { e.stopPropagation(); goTo(i); });
+    dotsEl.appendChild(b);
+    return b;
+  });
+
+  function setLabel(i) {
+    shapeEl.classList.add("fading");
+    setTimeout(() => {
+      document.getElementById("shapeName").textContent = SHAPES[i].name;
+      document.getElementById("shapeFormula").textContent = SHAPES[i].formula;
+      shapeEl.classList.remove("fading");
+    }, 400);
+    buttons.forEach((b, j) => b.setAttribute("aria-pressed", j === i ? "true" : "false"));
+  }
+  function goTo(i) {
+    if (morphStart >= 0 || i === current) return;
+    target = i;
+    fromAttr.array.set(SHAPES[current].pos); fromAttr.needsUpdate = true;
+    toAttr.array.set(SHAPES[target].pos); toAttr.needsUpdate = true;
+    uniforms.uMix.value = 0;
+    morphStart = clock.getElapsedTime();
+    lastSwitch = morphStart;
+    setLabel(i);
+  }
+  const next = () => goTo((current + 1) % SHAPES.length);
+  canvas.addEventListener("click", next);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); next(); }
+    if (e.key === "ArrowLeft") goTo((current + SHAPES.length - 1) % SHAPES.length);
+  });
+
+  // ---------- pointer parallax ----------
+  const pointer = { x: 0, y: 0 };
+  window.addEventListener("pointermove", (e) => {
+    pointer.x = e.clientX / window.innerWidth * 2 - 1;
+    pointer.y = e.clientY / window.innerHeight * 2 - 1;
+  });
+
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.position.z = w / h < 0.8 ? 10 : 7;   // pull back on tall phone screens
+    uniforms.uSize.value = 36 * Math.max(h, 360) / 900; // keep density constant across screen sizes
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ---------- loop ----------
+  const clock = new THREE.Clock();
+  let lastSwitch = 0, spin = 0;
+  function frame() {
+    const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+    uniforms.uTime.value = t;
+
+    if (morphStart >= 0) {
+      const p = Math.min((t - morphStart) / MORPH, 1);
+      uniforms.uMix.value = p;
+      if (p >= 1) { current = target; morphStart = -1; }
+    } else if (!reduceMotion && t - lastSwitch > 7) {
+      next();
+    }
+
+    spin += dt * (reduceMotion ? 0.03 : 0.14);
+    group.rotation.y = spin + pointer.x * 0.35;
+    group.rotation.x += ((pointer.y * 0.25 + 0.15) - group.rotation.x) * 0.04;
+    dustPts.rotation.y = -spin * 0.2;
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
